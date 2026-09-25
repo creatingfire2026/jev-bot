@@ -7,6 +7,8 @@ should never have to guess whether a number was read, computed, or made up.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .execution.paper import Book
 
 _W = 66
@@ -17,33 +19,63 @@ def rule(ch="-"):
     return ch * _W
 
 
-def header(engine: str, n: int) -> str:
+def header(engine: str, n: int, analyst: Optional[str] = None) -> str:
     dec = "JEV (live)" if engine == "jev" else "offline (deterministic)"
-    return "\n".join([
+    lines = [
         rule("="),
         "  JEV-BOT  ·  market decisions by JEV",
         rule("-"),
         f"  DATA        sim ({n} assets)",
         f"  DECISION    {dec}",
+    ]
+    if analyst and analyst.lower() == "grok":
+        lines.append("  ANALYST     grok (advisory)")
+    lines.extend([
         f"  EXECUTION   paper",
         f"  PERFORMANCE simulated",
         rule("="),
     ])
-
-
-def decisions_table(records) -> str:
-    lines = ["  ASSET   CLASS    JEV      PROB   CONF   VERDICT", rule("-")]
-    for st, d, gate in records:
-        tag = "EXEC" if gate.verdict == "EXECUTE" else "skip"
-        lines.append(
-            f"  {st.symbol:<6}  {st.asset_class:<6}  {d.action:<5} "
-            f"{_ARROW[d.action]:>2}  {d.probability:>4.0%}  {d.confidence:>4.0%}   "
-            + (tag if gate.verdict == "EXECUTE" else f"{tag} · {gate.reason}")
-        )
     return "\n".join(lines)
 
 
-def decision_card(st, d, gate) -> str:
+def _unpack(rec):
+    if len(rec) == 4:
+        return rec[0], rec[1], rec[2], rec[3]
+    return rec[0], rec[1], rec[2], None
+
+
+def _grok_tag(advice) -> str:
+    if advice is None:
+        return ""
+    if not getattr(advice, "ok", False):
+        return "error"
+    return getattr(advice, "consistency", "uncertain") or "uncertain"
+
+
+def decisions_table(records) -> str:
+    show_grok = any(_unpack(r)[3] is not None for r in records)
+    if show_grok:
+        lines = ["  ASSET   CLASS    JEV      PROB   CONF   VERDICT          GROK",
+                 rule("-")]
+    else:
+        lines = ["  ASSET   CLASS    JEV      PROB   CONF   VERDICT", rule("-")]
+    for rec in records:
+        st, d, gate, advice = _unpack(rec)
+        tag = "EXEC" if gate.verdict == "EXECUTE" else "skip"
+        verdict = (tag if gate.verdict == "EXECUTE"
+                   else f"{tag} · {gate.reason}")
+        row = (
+            f"  {st.symbol:<6}  {st.asset_class:<6}  {d.action:<5} "
+            f"{_ARROW[d.action]:>2}  {d.probability:>4.0%}  {d.confidence:>4.0%}   "
+            f"{verdict}"
+        )
+        if show_grok:
+            row = f"{row:<52}  {_grok_tag(advice)}"
+        lines.append(row)
+    return "\n".join(lines)
+
+
+def decision_card(st, d, gate, advice=None) -> str:
     lines = [
         rule("="),
         f"  {st.symbol}  ·  {st.asset_class}  ·  ${st.price:,.2f}",
@@ -61,8 +93,25 @@ def decision_card(st, d, gate) -> str:
         f"    confidence     {d.confidence:>7.2f}",
         rule("-"),
         f"  GATE           {gate.verdict}" + (f"  ·  {gate.reason}" if gate.reason else ""),
-        rule("="),
     ]
+    if advice is not None:
+        lines.append(rule("-"))
+        lines.append("  GROK ADVICE  (advisory only)")
+        if not advice.ok:
+            lines.append(f"    error          {advice.error}")
+        else:
+            lines.append(f"    consistency    {advice.consistency}")
+            lines.append(f"    confidence     {advice.confidence:>7.2f}")
+            lines.append(f"    summary        {advice.summary}")
+            if advice.risks:
+                lines.append("    risks")
+                for r in advice.risks:
+                    lines.append(f"      - {r}")
+            if advice.catalysts:
+                lines.append("    catalysts")
+                for c in advice.catalysts:
+                    lines.append(f"      - {c}")
+    lines.append(rule("="))
     return "\n".join(lines)
 
 

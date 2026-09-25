@@ -7,13 +7,12 @@
 ![tests](https://github.com/bl888m/jev-bot/actions/workflows/tests.yml/badge.svg)
 ![python](https://img.shields.io/badge/python-%E2%89%A53.10-D9D9D9?style=flat-square&labelColor=110E08)
 ![deps](https://img.shields.io/badge/runtime%20deps-0-D9D9D9?style=flat-square&labelColor=110E08)
-![engine](https://img.shields.io/badge/engine-JEV%20%2F%20offline-CCFF00?style=flat-square&labelColor=110E08)
+![engine](https://img.shields.io/badge/engine-JEV%20%2F%20offline%20%2F%20optional%20Grok-CCFF00?style=flat-square&labelColor=110E08)
 ![mode](https://img.shields.io/badge/execution-paper%20by%20default-D9D9D9?style=flat-square&labelColor=110E08)
 
 **You watch the market. JEV makes the decision.**
 
-Most AI is built to generate text. [JEV](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
-TypeSafe AI's first System One model, is built to decide: you hand it a state
+Most AI is built to generate text. [JEV](https://typesafe.ai/blog/introducing-system-one-models-and-jev), TypeSafe AI's first System One model, is built to decide: you hand it a state
 and a typed question with fixed options, and it returns one option with a
 calibrated probability in about a tenth of a second, no text to parse. jev-bot
 is a small, open experiment around that idea. It gives JEV a stream of market
@@ -43,6 +42,7 @@ Everything is labelled by its source and mode, and the labels are the point.
 | --- | --- |
 | **DATA** | simulated by default, an offline generator across stocks, crypto and memes. Live feeds plug in behind the same shape. |
 | **DECISION** | `offline` (a transparent local engine, default) or `jev` (the real TypeSafe model, with a key). Every decision says which one made it. |
+| **ANALYST** | optional `grok` (xAI). Advisory only; never overrides JEV or the risk gate. |
 | **EXECUTION** | paper. No wallet, no key, no live orders. There is no `--live` flag. |
 | **PERFORMANCE** | simulated. Any P&L here is paper over generated data. |
 
@@ -75,7 +75,8 @@ python -m jev_bot decisions          # state -> JEV -> risk, show the table
 python -m jev_bot run                # ... and execute the approved ones on paper
 python -m jev_bot card BTC           # unpack a single decision
 python -m jev_bot decisions --engine jev   # use the real JEV model (needs a key)
-python tests.py                     # 17 checks, no network
+python -m jev_bot decisions --grok         # optional Grok advisory (needs XAI_API_KEY)
+python tests.py                     # checks, no network
 ```
 
 ---
@@ -200,13 +201,48 @@ the single binding rule on every skip.
 | the action is HOLD or AVOID | never executes |
 | too many positions already open | > 5 |
 
+
+## Optional Grok analyst
+
+An advisory-only layer that asks [Grok](https://x.ai) (xAI) to comment on a
+market state together with the JEV decision and risk-gate verdict. Grok does
+**not** override JEV, does **not** override the risk gate, and does **not**
+authorize trades. Execution remains paper-only.
+
+Config is environment-only (never commit keys):
+
+| Variable | Required | Default |
+| -------- | -------- | ------- |
+| `XAI_API_KEY` | yes, for Grok mode | — |
+| `XAI_BASE_URL` | no | `https://api.x.ai/v1` |
+| `GROK_MODEL` | no | `grok-4.6` |
+| `GROK_TIMEOUT` | no | `30` |
+
+```bash
+export XAI_API_KEY=...          # do not commit this
+python -m jev_bot decisions --grok
+# or: python -m jev_bot decisions --analyst grok
+python -m jev_bot run --grok
+python -m jev_bot card BTC --grok
+```
+
+**WARNING:** Grok is advisory only. It does not override JEV or the risk gate
+and does not authorize trades. A `disagree` opinion never blocks an `EXECUTE`
+and never creates an extra fill.
+
+**WARNING:** Do not commit API keys. Do not put `XAI_API_KEY` in the repo,
+logs, or screenshots. The bot never prints the key.
+
+Calls use the OpenAI-compatible `POST {base}/chat/completions` path via
+stdlib `urllib` only — no OpenAI SDK.
+
 ## Tests
 
 ```bash
 python tests.py
 ```
 
-Seventeen checks, no network: that a bullish state decides BUY and a bearish
+Core and Grok-mocked checks, no network: that a bullish state decides BUY and a bearish
 one SELL, that a bearish meme is an AVOID rather than a short, that a flat state
 holds, that decisions are deterministic and labelled, every gate refusal, and
 that a paper BUY profits when price rises and a SELL when it falls.
